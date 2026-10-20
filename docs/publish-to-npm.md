@@ -18,6 +18,10 @@ GitHub Packages 的 npm 源**强制**作用域包，而且官方文档写明「p
 
 ## 你只差一步：给仓库配 `NPM_TOKEN`
 
+**当前状态（2026-10-20）**：代码已切到 npmjs 配置并推送（`4459450`），标签 `v0.2.0` 已重打，
+CI 运行到第 7 步 **`Check npm token` 失败** —— 仓库里还没有 `NPM_TOKEN`，所以包尚未出现在 npmjs
+（`https://registry.npmjs.org/dsh-code-notes` 仍是 404）。配好 secret 后重跑即可，无需再改代码。
+
 CI 用的是 npm 官方 token，不是 `GITHUB_TOKEN`（后者只在 GitHub Packages 有效）：
 
 1. 去 <https://www.npmjs.com/settings/~/tokens> 建一个 **Granular Access Token**
@@ -26,7 +30,9 @@ CI 用的是 npm 官方 token，不是 `GITHUB_TOKEN`（后者只在 GitHub Pack
    - 范围：至少覆盖 `dsh-code-notes`
 2. 在 <https://github.com/javagita-lgtm/dsh-code-notes/settings/secrets/actions>
    新建仓库 secret，名字必须是 **`NPM_TOKEN`**，值粘贴上面的 token。
-3. 打新标签触发发布（见下）。
+3. 重跑发布（任选其一）：
+   - Actions 页面 → `publish` → **Run workflow**（已支持 `workflow_dispatch`）
+   - 或 `git tag -d v0.2.0 && git tag v0.2.0 && git push --force origin v0.2.0`
 
 > 第一次发布时 npm 会让你确认包名可用；`dsh-code-notes` 在 npmjs 上目前 **404 = 未被占用**（已核对）。
 
