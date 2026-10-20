@@ -64,6 +64,8 @@ assert.match(source, /NPM_TOKEN: \$\{\{ secrets\.NPM_TOKEN \}\}/u);
 assert.match(source, /id-token: write/u);
 assert.match(source, /bypass 2fa/iu);
 assert.match(source, /registry\.npmjs\.org/u);
+// 暂存发布遇到「同版本已暂存」的 409 应当被识别为待批准，而不是构建失败
+assert.match(source, /previously staged version/u);
 // 不能把 token 回显到日志里
 assert.ok(!/echo\s+"\$NPM_TOKEN"/u.test(source), '工作流不得回显 token');
 assert.ok(!/echo\s+\$NPM_TOKEN/u.test(source), '工作流不得回显 token');

@@ -50,29 +50,66 @@ node scripts/check-npm-2fa.mjs      # 读 NPM_TOKEN 或 ~/.npmrc
    - Workflow filename: `publish.yml`
 4. 删掉仓库 secret `NPM_TOKEN`（工作流会自动走 OIDC）
 
-## 临时替代通道：暂存发布（已验证可用）
+## ⚠️ 你现在遇到的 E409：暂存版本占住了 0.2.0
 
-npm 12 的 `npm stage publish` 允许在没有 2FA 的情况下把版本推进待批准队列，
-已在本次实测成功（stag id `8e737970…`，状态从 `validating` → `staged`）：
+开完 2FA 后本地 `npm publish` 报：
 
-```bash
-npm i -g npm@12
-npm stage publish --access public
-npm stage list
+```
+409 Conflict - PUT https://registry.npmjs.org/dsh-code-notes
+Cannot publish over previously staged version "0.2.0".
 ```
 
-但**批准这一步（`npm stage approve <id>`）仍然需要 2FA**：现在调用会返回
-`404 staged version not found`（服务端在缺 OTP 时给出的其实是「你看不到这个对象」）。
-所以开完账号 2FA 后，这条通道也可以用来「CI 暂存 + 你在网页批准」：
+原因是之前那次 `npm stage publish` 把 **0.2.0 永久钉在了暂存队列里**
+（stag id `8e737970-7c59-4fa7-bd17-07edcff7fbce`，状态 `staged`）。
+npm 不允许同一个版本号「既在暂存队列、又直接发布」。二选一：
 
-- Actions → `publish` → Run workflow → `strategy: staged`
+**路线 1：批准那条暂存记录（保留 0.2.0，最快）**
+
+```bash
+# 任意一种都行
+npm i -g npm@12 && npm stage approve 8e737970-7c59-4fa7-bd17-07edcff7fbce
+npx --yes npm@12 stage approve 8e737970-7c59-4fa7-bd17-07edcff7fbce
+npm publish --otp <6位验证码> --access public   # 若想按 otp 覆盖式推进
+```
+
+批准时会要求输入 OTP。成功后立刻把 latest 从占位版本挪过去：
+
+```bash
+npm dist-tag add dsh-code-notes@0.2.0 latest
+```
+
+**为什么必须挪 latest**：暂存发布会先创建一个占位版本 `0.0.0-stage`
+（description：`Temporary package placeholder for staged publishing`），
+现在 `registry.npmjs.org/dsh-code-notes` 的 `dist-tags.latest` 指向的就是它。
+不挪的话，别人 `pnpm add dsh-code-notes` 装到的是**空占位包**。
+
+**路线 2：放弃 0.2.0 这条暂存记录，直接发一个新版本**
+
+```bash
+npm version patch                      # 0.2.0 -> 0.2.1
+git push --follow-tags
+npm publish --access public --otp <6位验证码>
+```
+
+> 说明：不要试图「先删暂存再发同一个版本」——`npm stage reject` / `DELETE /-/stage/:id`
+> 同样需要 OTP，而且删掉后 0.2.0 这个号仍可能被占用一段时间。
+
+## 当前进度（2026-10-20 17:30）
+
+| 项 | 状态 |
+| --- | --- |
+| 账号 2FA | ✅ 已开启（`tfa.mode = auth-and-writes`） |
+| 包名占用 | ✅ `dsh-code-notes` 归属 `hansdeemo`（因暂存占位包而存在） |
+| 0.2.0 真实版本 | ❌ 仍在暂存队列，未批准 |
+| `latest` 指向 | ⚠️ `0.0.0-stage`（占位包），**现在 `pnpm add` 会装到空包** |
+| 匿名可安装 | ❌ 0.2.0 不存在；latest 是占位 |
 
 ## 当前待办
 
-- [ ] 账号 `hansdeemo` 开启 2FA
-- [ ] 本地 `npm publish --access public` 完成首次发布（或配置 Bypass token 后跑 CI）
+- [ ] 批准暂存记录（路线 1）或发 0.2.1（路线 2）
+- [ ] `npm dist-tag add dsh-code-notes@<版本> latest`
 - [ ] 配置 Trusted Publishing，删除 `NPM_TOKEN`
-- [ ] 发布后验证：干净目录 `pnpm add dsh-code-notes` 能匿名装上
+- [ ] 跑 `node scripts/verify-published.mjs` 确认可匿名安装
 
 ## 方案 A：本地交互发布一次（开完 2FA 后最快）
 
@@ -124,13 +161,15 @@ npm publish --access public
 ## 方案 C：暂存发布（CI 只 stage，网页用 2FA 批准）
 
 npm 2026 年推出的 staged publishing 专为「CI 无法交互 2FA」设计：
-CI 把版本推进待批准队列，维护者在 npm 网页点一下批准。
+CI 把版本推进待批准队列，维护者在 npm 网页或用 `npm stage approve` 批准。
 
 - Actions → `publish` → **Run workflow** → `strategy: staged`
-- 然后到 `https://www.npmjs.com/package/dsh-code-notes` 用 2FA 批准这一版
+- 然后 `npm stage approve <id>` 或到 `https://www.npmjs.com/package/dsh-code-notes` 批准
 
-> 该能力需要较新的 npm CLI；工作流里已经 `npm install -g npm@latest`，
-> 若仍提示不支持，说明当前 runner 的 npm 还没带上 `npm stage` 子命令。
+> 该能力需要 npm 12+；工作流里已尝试 `npm install -g npm@12`。
+> **注意副作用**：首次暂存会创建 `0.0.0-stage` 占位包并把 `latest` 指向它，
+> 批准真版本后必须 `npm dist-tag add dsh-code-notes@<版本> latest`，否则用户装到空包。
+> 同一版本重复暂存会得到 409（工作流已把它识别为「等待批准」而不是失败）。
 
 ## 工作流的四种发布方式
 
@@ -165,12 +204,24 @@ pnpm add dsh-code-notes
 | 现象 | 原因 | 处理 |
 | --- | --- | --- |
 | `403 ...bypass 2fa enabled is required`（token 全新、也勾了 Bypass） | **npm 账号本身没开 2FA**，Bypass 标记不生效 | 先开账号 2FA，或走方案 A 本地交互发布 |
+| **`409 Cannot publish over previously staged version`** | 同版本号已在暂存队列里 | 批准那条暂存（`npm stage approve <id>`），或 `npm version patch` 换版本号 |
+| `latest` 装到空包 / `0.0.0-stage` | 暂存发布创建的占位版本占据了 latest | `npm dist-tag add dsh-code-notes@<真版本> latest` |
+| `npm stage approve` 返回 404 / 401 | 缺 OTP（服务端在无 2FA 时隐藏对象） | 开 2FA 后重试，会提示输入 6 位验证码 |
 | `403` 且 token 是新建的 | secret 没真正更新 | 到仓库 Secrets 页面确认更新时间，改完重跑 |
 | `Packages` 选成了单个包 | 首次发布时该包不存在，选不到 | 改成 **All packages** |
 | `E404` 装不到（刚发完） | npm 对新包有安全扫描，几分钟到十几分钟 | 等 5~15 分钟，别重复 publish |
-| `EPUBLISHCONFLICT` | 同版本已存在 | 提版本号 |
 | `Prepare npm credentials` 报 token 无效 | token 过期/撤销/粘贴错 | 重建并更新 secret |
 | 装上了但 DSH 没显示 | 只 `pnpm add`，没登记 bundle | 见上「装进 DeepSeek Harness」 |
+
+## 发布后验收（一条命令）
+
+```bash
+node scripts/verify-published.mjs        # 校验 package.json 里的版本
+node scripts/verify-published.mjs 0.2.1  # 或指定版本
+```
+
+它会检查：版本是否真的在 registry 上、`latest` 是否指向它（占位包会被点名）、
+以及在**屏蔽本机 .npmrc 的干净目录**里能否匿名安装。三项全绿才说明「一条命令、无需 token」成立。
 
 ## 背景：为什么不是 GitHub Packages
 

@@ -143,7 +143,17 @@ jobs:
           if [ -n "$NPM_TOKEN" ]; then
             export NPM_CONFIG_USERCONFIG="$RUNNER_TEMP/npmrc"
           fi
-          npm stage publish --access public
+          # 同一版本已经在暂存队列里时，npm 会回 409；这不是失败，而是「等你批准」
+          if ! OUT="$(npm stage publish --access public 2>&1)"; then
+            echo "$OUT"
+            if echo "$OUT" | grep -q 'previously staged version'; then
+              echo "::notice title=该版本已在暂存队列::去 npm 网页用 2FA 批准，或发一个更高版本号"
+              npm stage list || true
+              exit 0
+            fi
+            exit 1
+          fi
+          echo "$OUT"
           echo "::notice title=已进入暂存队列::到 https://www.npmjs.com/package/$(node -p "require('./package.json').name") 用 2FA 批准这一版"
 
       - name: Publish with NPM_TOKEN
