@@ -31,11 +31,12 @@
 
 ---
 
-## 方案 B：用压缩包安装（只需要一个 36 KB 的 tgz）
+## 方案 B：用压缩包安装（只需要一个 37 KB 的 tgz）
 
-已在当前仓库生成：`dist/javagita-lgtm-dsh-code-notes-0.2.0.tgz`
-（14 个文件，含 LICENSE；SHA-256：`a46bd97210791ee9501fea506c1a0d707a5e0d98231678bcc11d4d374ef874f6`）
-> 上架到 GitHub Packages 后，除了这条 tgz 路径，也可以按包名安装 `@javagita-lgtm/dsh-code-notes`。
+源码目录里执行 `npm pack --pack-destination dist` 即可生成
+`dist/javagita-lgtm-dsh-code-notes-0.2.0.tgz`（14 个文件，含 LICENSE）。
+> 上架到 GitHub Packages 后，除了这条 tgz 路径，也可以按包名安装 `@javagita-lgtm/dsh-code-notes`
+> （见 [`publish-github-packages.md`](publish-github-packages.md)）。
 
 1. 把 tgz 拷到新机器，例如 `D:\dsh-plugins\javagita-lgtm-dsh-code-notes-0.2.0.tgz`。
 2. 对 Agent 说：

@@ -2,7 +2,7 @@
 
 > 仓库：<https://github.com/javagita-lgtm/dsh-code-notes> · 包名 `@javagita-lgtm/dsh-code-notes`
 > 发布到 GitHub Packages 让别人 `pnpm add` 安装的完整步骤见 [`docs/publish-github-packages.md`](docs/publish-github-packages.md)；
-> 只想装到另一台机器（拷目录或 tgz）见 [`dist/INSTALL-other-machine.md`](dist/INSTALL-other-machine.md)。
+> 只想装到另一台机器（拷目录或 tgz）见 [`docs/install-other-machine.md`](docs/install-other-machine.md)。
 
 边编码边讲解：AI 每改一次代码，插件就通过**旁路模型调用**把改动讲成业务逻辑说明，
 并同时落成四种 Obsidian 形态：
