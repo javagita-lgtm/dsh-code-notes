@@ -29,13 +29,31 @@ if (doc !== undefined) {
     'Check tag matches version',
     'Guard package name and registry',
     'Detect registry state',
+    'Prepare npm credentials',
+    'Publish (staged)',
     'Publish with NPM_TOKEN',
     'Publish with OIDC trusted publishing'
   ]) {
     assert.ok(names.includes(required), `缺少步骤 ${required}（实际：${names.join(' | ')}）`);
   }
+
+  // 每种发布方式的 if 条件都要存在，避免某条路径被误删后静默失效
+  const byName = (name) => job.steps.find((step) => step.name === name);
+  assert.match(String(byName('Publish (staged)').if), /staged/u);
+  assert.match(String(byName('Publish with NPM_TOKEN').if), /token/u);
+  assert.match(String(byName('Publish with OIDC trusted publishing').if), /oidc/u);
+
+  // 手动触发必须能在页面上选择发布方式
+  const triggers = doc.on ?? doc[true];
+  assert.ok(triggers.workflow_dispatch !== undefined, '缺少 workflow_dispatch');
+  assert.ok(triggers.workflow_dispatch.inputs?.strategy !== undefined, 'workflow_dispatch 缺少 strategy 选项');
 } else {
-  for (const marker of ['Publish with NPM_TOKEN', 'Publish with OIDC trusted publishing', 'Detect registry state']) {
+  for (const marker of [
+    'Publish with NPM_TOKEN',
+    'Publish with OIDC trusted publishing',
+    'Publish (staged)',
+    'Detect registry state'
+  ]) {
     assert.ok(source.includes(marker), `工作流缺少 ${marker}`);
   }
 }
@@ -45,5 +63,8 @@ assert.match(source, /NPM_TOKEN: \$\{\{ secrets\.NPM_TOKEN \}\}/u);
 assert.match(source, /id-token: write/u);
 assert.match(source, /bypass 2fa/iu);
 assert.match(source, /registry\.npmjs\.org/u);
+// 不能把 token 回显到日志里
+assert.ok(!/echo\s+"\$NPM_TOKEN"/u.test(source), '工作流不得回显 token');
+assert.ok(!/echo\s+\$NPM_TOKEN/u.test(source), '工作流不得回显 token');
 
-console.log('PASS  工作流：YAML 合法、步骤齐全、token/OIDC 双路径与守卫齐全');
+console.log('PASS  工作流：YAML 合法、四种发布方式齐全、守卫与防泄露检查通过');

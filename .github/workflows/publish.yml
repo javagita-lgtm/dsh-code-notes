@@ -5,6 +5,17 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      strategy:
+        description: '发布方式'
+        type: choice
+        options:
+          - auto          # 有 token 就走 token；没有且包已存在就走 OIDC
+          - token         # 强制用 NPM_TOKEN
+          - oidc          # 强制用 Trusted Publishing（包必须已存在）
+          - staged        # 暂存发布：CI 只 stage，由维护者在 npm 网页用 2FA 批准
+          - dry-run       # 只打包校验，不发布
+        default: auto
 
 permissions:
   contents: read
@@ -15,8 +26,8 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     env:
-      # 可能是空串：下面用 if 判断走 token 还是 OIDC
       NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+      STRATEGY: ${{ inputs.strategy || 'auto' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -25,10 +36,11 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
-      # Trusted Publishing（OIDC）需要 npm >= 11.5.1，Node 22 自带的是 10.x
+      # npm stage（暂存发布）需要较新的 CLI；Node 22 自带 10.x
       - name: Upgrade npm
         run: |
-          npm install -g npm@latest || echo "npm 升级失败，继续使用自带版本"
+          npm install -g npm@latest || echo "npm 升级失败，继续用自带版本"
+          npm --version
 
       - name: Verify
         run: |
@@ -38,6 +50,7 @@ jobs:
           node test/smoke.mjs
           node test/client.mjs
           node test/integration.mjs
+          node test/workflow.mjs
 
       - name: Check tag matches version
         if: startsWith(github.ref, 'refs/tags/')
@@ -61,7 +74,6 @@ jobs:
             exit 1
           fi
 
-      # 包是否已在 npmjs 上（首次发布不能用 OIDC 创建新包）
       - name: Detect registry state
         id: state
         run: |
@@ -73,47 +85,79 @@ jobs:
             echo "published=false" >> "$GITHUB_OUTPUT"
             echo "包尚未发布到 npmjs"
           fi
-        env:
-          NPM_TOKEN: ''
 
-      # 有 token 就先确认它可用，并写一个只在本步骤可见的临时 npmrc
+      # 只在 token 分支准备凭据；全程不打印 token
       - name: Prepare npm credentials
-        if: env.NPM_TOKEN != ''
+        if: env.NPM_TOKEN != '' && env.STRATEGY != 'oidc'
         run: |
-          echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > "$RUNNER_TEMP/npmrc"
+          printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_TOKEN" > "$RUNNER_TEMP/npmrc"
           chmod 600 "$RUNNER_TEMP/npmrc"
-          if ! NPM_CONFIG_USERCONFIG="$RUNNER_TEMP/npmrc" npm whoami; then
-            echo "::error title=NPM_TOKEN 无效::token 可能已过期或被撤销，请到 https://www.npmjs.com/settings/~/tokens 重新生成"
+          export NPM_CONFIG_USERCONFIG="$RUNNER_TEMP/npmrc"
+          case "$NPM_TOKEN" in
+            npm_*) echo "token 形态: granular（npm_ 前缀）" ;;
+            *) echo "::warning::token 不以 npm_ 开头，可能是 classic token（npm 已移除）或粘贴有误" ;;
+          esac
+          if ! WHOAMI="$(npm whoami 2>&1)"; then
+            echo "::error title=NPM_TOKEN 无效::npm whoami 失败：$WHOAMI"
+            echo "请到 https://www.npmjs.com/settings/~/tokens 重新生成后更新 secret NPM_TOKEN。"
             exit 1
           fi
-          echo "token 有效"
+          echo "token 对应账号: $WHOAMI"
+
+      - name: Publish (dry run)
+        if: env.NPM_TOKEN != '' && env.STRATEGY == 'dry-run'
+        run: |
+          NPM_CONFIG_USERCONFIG="$RUNNER_TEMP/npmrc" npm publish --dry-run --access public
+
+      # ── 方案 C：暂存发布。CI 只把版本推进 npm 的 stage 队列，
+      #    维护者随后在 npm 网页用 2FA 批准，天然规避 CI 无法完成 2FA 的问题。
+      - name: Publish (staged)
+        if: env.STRATEGY == 'staged'
+        run: |
+          if ! npm stage --help >/dev/null 2>&1; then
+            echo "::error title=npm CLI 不支持 npm stage::当前版本 $(npm --version)，需要更新到支持 staged publishing 的版本"
+            exit 1
+          fi
+          if [ -n "$NPM_TOKEN" ]; then
+            export NPM_CONFIG_USERCONFIG="$RUNNER_TEMP/npmrc"
+          fi
+          npm stage publish --access public
+          echo "::notice title=已暂存，等待批准::到 https://www.npmjs.com/package/$(node -p "require('./package.json').name") 用 2FA 批准这版发布"
 
       - name: Publish with NPM_TOKEN
-        if: env.NPM_TOKEN != ''
+        if: env.NPM_TOKEN != '' && (env.STRATEGY == 'auto' || env.STRATEGY == 'token')
         run: |
+          set +e
           NPM_CONFIG_USERCONFIG="$RUNNER_TEMP/npmrc" npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          status=$?
+          set -e
+          if [ $status -ne 0 ]; then
+            cat <<'HINT'
 
-      # 没有 token 时退回 OIDC Trusted Publishing（仅对已存在的包有效）
+          ────────────────────────────────────────────────────────────────
+          403 “...with bypass 2fa enabled is required” 的自查顺序：
+            1) 账号是否已开启 2FA：https://www.npmjs.com/settings/~/account
+               —— 账号没开 2FA 时，token 上的 Bypass 选项不生效，发布永远被拒
+            2) token 是否勾了 Bypass two-factor authentication：在 token 列表里能看到该标记
+            3) Packages 是否选了 All packages（首次发布时包里还没有这个包名）
+            4) Permissions 是否为 Read and write
+            5) 改完 token 后 secret 是否真的更新了（新建 token ≠ 更新 secret）
+
+          仍不通就换方案：
+            · 本地交互发布一次（最快）：本机 npm login 后 npm publish --access public
+            · 或在 Actions 里选 strategy=staged，走暂存发布后网页批准
+          详见 docs/publish-to-npm.md。
+          ────────────────────────────────────────────────────────────────
+          HINT
+            exit $status
+          fi
+
       - name: Publish with OIDC trusted publishing
-        if: env.NPM_TOKEN == ''
+        if: env.STRATEGY == 'oidc' || (env.STRATEGY == 'auto' && env.NPM_TOKEN == '')
         run: |
           if [ "${{ steps.state.outputs.published }}" != "true" ]; then
-            echo "::error title=缺少 NPM_TOKEN::npm 不允许用 OIDC 创建新包，首次发布必须先用 token。"
-            echo "请创建 granular access token（Read and write + All packages + 勾选 Bypass 2FA），"
-            echo "存为仓库 secret NPM_TOKEN 后重跑。详见 docs/publish-to-npm.md。"
+            echo "::error title=缺少 NPM_TOKEN::npm 不允许用 OIDC 创建新包，首次发布必须先用 token、暂存发布或本地交互发布。"
+            echo "见 docs/publish-to-npm.md。"
             exit 1
           fi
           npm publish --provenance --access public
-
-      - name: Explain 403
-        if: failure() && env.NPM_TOKEN != ''
-        run: |
-          echo "::warning title=若上方报 403 / 2FA::"
-          echo "错误包含 “Two-factor authentication or granular access token with bypass 2fa enabled is required” 时："
-          echo "token 没有勾选 Bypass 2FA。重建 Granular Access Token 时必须勾选："
-          echo "  Permissions: Read and write"
-          echo "  Packages: All packages（首次发布不能选单个包，因为包还不存在）"
-          echo "  Bypass two-factor authentication (2FA): 必须勾"
-          echo "然后更新 secret NPM_TOKEN 并重跑。详见 docs/publish-to-npm.md。"

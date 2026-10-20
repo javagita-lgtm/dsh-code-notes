@@ -1,111 +1,113 @@
 # 发布到公共 npmjs 并让别人 `pnpm add` 安装
 
-> 目标形态：包名 `dsh-code-notes`（**不带作用域**），源是 <https://registry.npmjs.org>。
-> 这样任何人只要 `pnpm add dsh-code-notes`，**无需 token、无需 .npmrc**。
+> 目标：包名 `dsh-code-notes`（不带作用域），源 <https://registry.npmjs.org>
+> —— 任何人 `pnpm add dsh-code-notes`，**无需 token、无需 .npmrc**。
 
-## 为什么改回不带作用域
+## 当前卡点（2026-10-20）
 
-GitHub Packages 的 npm 源**强制**作用域包，而且官方文档写明「public 包也需要 token」，
-本项目实测匿名 `npm view` 返回 `401 authentication token not provided`。
-公共 npmjs 上没有这个限制，代价是：
-
-| | GitHub Packages | 公共 npmjs |
-| --- | --- | --- |
-| 包名 | 必须 `@javagita-lgtm/dsh-code-notes` | `dsh-code-notes` |
-| 安装命令 | 要 `.npmrc` 配 registry + token | `pnpm add dsh-code-notes` |
-| 匿名可装 | ❌ | ✅ |
-| 代码可见 | 仓库公开即公开 | 包内容公开（本仓库本来就是公开的） |
-
-## 你只差一步：给仓库配**勾了 Bypass 2FA** 的 token
-
-**当前状态（2026-10-20 16:50 UTC+8）**：包已上传到一半但被 npm 拒绝，`registry.npmjs.org/dsh-code-notes` 仍是 404。
-
-CI 报错原文：
+两次 CI 发布都停在同一个 403：
 
 ```
-E403 403 Forbidden - PUT https://registry.npmjs.org/dsh-code-notes
+403 Forbidden - PUT https://registry.npmjs.org/dsh-code-notes
 Two-factor authentication or granular access token with bypass 2fa enabled is required to publish packages.
 ```
 
-**这不是权限范围问题，也不是包名问题**（前面的 `Verify` / `Check tag` / `Guard package name` 全绿，
-provenance 也签名成功了）。npm 现在的策略是：**发布必须 2FA，或者用勾了「Bypass two-factor authentication」
-的 granular token**。你现有的 `NPM_TOKEN` 少了那个勾。
+已排除的因素：包名可用（npmjs 404）、版本/标签一致、provenance 签名成功、token 能被 `npm whoami` 认出来
+（不然会先在 `Prepare npm credentials` 挂掉）。所以问题只剩 **npm 账号的 2FA / token 的 Bypass 状态**。
 
-### 重建 token（三处必须全对）
+npm 的规则是二选一，缺一不可：
 
-<https://www.npmjs.com/settings/~/tokens> → Generate New Token → **Granular Access Token**：
+| 条件 | 说明 |
+| --- | --- |
+| 账号已开启 2FA | 发布时要么当场输 OTP（CI 做不到），要么用带 Bypass 的 token |
+| token 勾了 **Bypass two-factor authentication** | **只有账号已开 2FA 时这个勾才会出现/生效** |
 
-| 设置项 | 必须的值 | 为什么 |
-| --- | --- | --- |
-| Permissions | **Read and write** | 只读的发不了 |
-| Packages | **All packages** | 首次发布时 `dsh-code-notes` 还不存在，选不到单个包 |
-| **Bypass two-factor authentication (2FA)** | **✅ 勾上** | 少了它就是你看到的这个 403 |
-| Expiration | 7 天（默认）即可 | 发布完立即删掉/轮换 |
+⚠️ 关键：**如果 npm 账号本身没开 2FA，token 上的 Bypass 选项不会帮你绕过检查**。
+这就是「更新了 token 还是 403」最常见的原因。
 
-然后把新 token 覆盖到仓库 secret `NPM_TOKEN`（<https://github.com/javagita-lgtm/dsh-code-notes/settings/secrets/actions>），
-再重跑：Actions → `publish` → **Run workflow**。
+## 方案 A：本地交互发布一次（最快，推荐先做这个）
 
-> 我已在工作流里加了前置校验：token 无效会在 `Prepare npm credentials` 直接报「NPM_TOKEN 无效」，
-> 不会再走到 publish 才失败；403 时还会打印上面这份对照表。
-
-### 发布成功之后（可选，但推荐）
-
-包能出现在 npmjs 上之后，就可以彻底不用 token 了——配置 **Trusted Publishing（OIDC）**：
-
-1. <https://www.npmjs.com/package/dsh-code-notes/access> → Trusted publishing → Add
-2. 填三项，必须与仓库完全一致：
-
-   | 字段 | 值 |
-   | --- | --- |
-   | Organization or user | `javagita-lgtm` |
-   | Repository | `dsh-code-notes` |
-   | Workflow filename | `publish.yml` |
-
-3. 之后**删掉** secret `NPM_TOKEN`，工作流会自动走 OIDC 分支（已内置），不再依赖任何长期密钥。
-
-> npm 不允许用 OIDC **创建**新包，所以第一次必须用 token——这一点工作流里也做了拦截并给出提示。
-
-> `dsh-code-notes` 在 npmjs 上目前仍是 **404 = 未被占用**（已核对）。
-
-## 发布流程（已自动化）
-
-`.github/workflows/publish.yml` 在推送 `v*` 标签（或手动 Run workflow）时：
-
-1. 升级 npm 到最新版（OIDC 需要 ≥ 11.5.1）
-2. `node --check` + 四套冒烟测试（纯函数、客户端模块、集成链路、工作流自身）
-3. 校验「标签版本 == package.json 版本」
-4. 校验包名不带 `@`，且 `publishConfig.registry` 就是 npmjs（防止误发到别处）
-5. 探测包是否已存在（决定走 token 还是 OIDC）
-6. 有 `NPM_TOKEN` → 先 `npm whoami` 验活，再 `npm publish --provenance --access public`
-7. 没 `NPM_TOKEN` 且包已存在 → 走 OIDC Trusted Publishing
-8. 没 `NPM_TOKEN` 且包不存在 → 直接报错并提示「首次发布必须用带 Bypass 2FA 的 token」
+CI 不需要处理 2FA，你在终端里输一次 OTP 就行。**发布过一次之后**，包就存在了，
+后续就能交给 Trusted Publishing（OIDC）自动发布。
 
 ```bash
-npm version patch        # 0.2.0 -> 0.2.1，或 minor / major
-git push --follow-tags   # 推标签 ⇒ CI 自动发布
-```
+# 1) 本机登录（浏览器授权）
+npm login
 
-也可以手动发（本机已登录、账号已开 2FA 时）：
+# 2) 确认账号
+npm whoami
 
-```bash
-npm login                # 浏览器授权
+# 3) 在仓库根目录发布（会提示输入一次性验证码 OTP）
 npm publish --access public
 ```
 
-## 别人怎么装
+> 如果本机 `npm whoami` 也报 401/403，说明是账号层面的问题，先修账号 2FA：
+> <https://www.npmjs.com/settings/~/account> → Two-Factor Authentication → Enable。
+> 开了 2FA 之后 https://www.npmjs.com/settings/~/tokens 里的 token 才会有 Bypass 选项。
+
+发布成功后立刻：
+
+```bash
+# 4) 配置 Trusted Publishing，从此 CI 不需要任何 token
+#    https://www.npmjs.com/package/dsh-code-notes/access → Trusted publishing → Add
+#      Organization or user : javagita-lgtm
+#      Repository           : dsh-code-notes
+#      Workflow filename     : publish.yml
+# 5) 删掉仓库 secret NPM_TOKEN（可选，但推荐）
+```
+
+之后推 `v*` 标签，CI 会自动走 OIDC 分支（工作流已内置）。
+
+## 方案 B：继续用 token（需要账号已开 2FA）
+
+<https://www.npmjs.com/settings/~/tokens> → Generate New Token → **Granular Access Token**：
+
+| 设置项 | 值 |
+| --- | --- |
+| Permissions | **Read and write** |
+| Packages | **All packages**（首次发布时包还不存在，选不到单个包） |
+| **Bypass two-factor authentication (2FA)** | **✅ 勾**（账号没开 2FA 时这个勾不生效） |
+| Expiration | 7 天即可 |
+
+更新仓库 secret `NPM_TOKEN`（新建 token ≠ 更新 secret，务必确认覆盖成功），
+然后 Actions → `publish` → **Run workflow** → `strategy: token`。
+
+## 方案 C：暂存发布（CI 只 stage，网页用 2FA 批准）
+
+npm 2026 年推出的 staged publishing 专为「CI 无法交互 2FA」设计：
+CI 把版本推进待批准队列，维护者在 npm 网页点一下批准。
+
+- Actions → `publish` → **Run workflow** → `strategy: staged`
+- 然后到 `https://www.npmjs.com/package/dsh-code-notes` 用 2FA 批准这一版
+
+> 该能力需要较新的 npm CLI；工作流里已经 `npm install -g npm@latest`，
+> 若仍提示不支持，说明当前 runner 的 npm 还没带上 `npm stage` 子命令。
+
+## 工作流的四种发布方式
+
+`.github/workflows/publish.yml` 支持 `workflow_dispatch` 选 `strategy`：
+
+| strategy | 行为 |
+| --- | --- |
+| `auto`（默认） | 有 `NPM_TOKEN` 就用 token；没有且包已存在则走 OIDC |
+| `token` | 强制用 `NPM_TOKEN` |
+| `oidc` | 强制 Trusted Publishing（包必须已存在） |
+| `staged` | 暂存发布，等网页 2FA 批准 |
+| `dry-run` | 只 `npm publish --dry-run`，校验打包内容 |
+
+每次运行都会：`node --check` + 四套冒烟测试 → 版本/标签一致性 → 包名与 registry 守卫 →
+注册表状态探测 → 凭据验活（不打印 token）→ 发布。
+
+## 别人怎么装（发布成功后）
 
 ```bash
 pnpm add dsh-code-notes
 ```
 
-**装进 DeepSeek Harness**：`pnpm add` 只把包放进项目，DSH 还需要登记 bundle。
-在 DSH 里说：
-
-> 从 npm 安装 `dsh-code-notes`
-
-Agent 会用 `plugin_manager` 的 `install_bundle`（`target: dsh-code-notes`）完成装包与 bundle 选择；
-也可以在该 profile 里 `pnpm add dsh-code-notes` 后，把包名加进 profile `package.json` 的
-`dsh.profile.bundles`，并补一条 `cordis.patch.yml` 的 `- id: code-notes`（内容抄本仓库同名文件）。
+**装进 DeepSeek Harness**：在 DSH 里说「从 npm 安装 `dsh-code-notes`」，
+`plugin_manager` 的 `install_bundle` 会完成装包与 bundle 选择；
+也可手动 `pnpm add dsh-code-notes` 后把包名加进 profile `package.json` 的 `dsh.profile.bundles`，
+并补一条 `cordis.patch.yml` 的 `- id: code-notes`。
 
 装完刷新页面 → 输入框下方 `✦ 讲解` → 填 Obsidian 库目录。
 
@@ -113,16 +115,17 @@ Agent 会用 `plugin_manager` 的 `install_bundle`（`target: dsh-code-notes`）
 
 | 现象 | 原因 | 处理 |
 | --- | --- | --- |
-| `403 ... granular access token with bypass 2fa enabled is required` | token 没勾 **Bypass 2FA** | 重建 granular token，勾 Read and write + All packages + Bypass 2FA |
-| `403` 但 token 是新建的、也勾了 Bypass | `Packages` 选成了「单个包」，而首次发布时该包不存在 | 改成 **All packages** |
-| npm 账号没开 2FA，且不想开 | npm 政策要求发布方有 2FA 或 bypass token | 在 npm 账号开启 2FA，或改用 Trusted Publishing（包首次发布后） |
-| `E404` 装不到（刚发完） | npm 对新包有安全扫描，通常几分钟、最长十几分钟才可安装 | 等 5~15 分钟；别重复 publish |
+| `403 ...bypass 2fa enabled is required`（token 全新、也勾了 Bypass） | **npm 账号本身没开 2FA**，Bypass 标记不生效 | 先开账号 2FA，或走方案 A 本地交互发布 |
+| `403` 且 token 是新建的 | secret 没真正更新 | 到仓库 Secrets 页面确认更新时间，改完重跑 |
+| `Packages` 选成了单个包 | 首次发布时该包不存在，选不到 | 改成 **All packages** |
+| `E404` 装不到（刚发完） | npm 对新包有安全扫描，几分钟到十几分钟 | 等 5~15 分钟，别重复 publish |
 | `EPUBLISHCONFLICT` | 同版本已存在 | 提版本号 |
-| `Prepare npm credentials` 报 token 无效 | token 过期/被撤销 | 重建并更新 secret |
+| `Prepare npm credentials` 报 token 无效 | token 过期/撤销/粘贴错 | 重建并更新 secret |
 | 装上了但 DSH 没显示 | 只 `pnpm add`，没登记 bundle | 见上「装进 DeepSeek Harness」 |
 
-## 从 GitHub Packages 迁过来的历史记录
+## 背景：为什么不是 GitHub Packages
 
-- `v0.2.0` 曾以 `@javagita-lgtm/dsh-code-notes` 发布到 GitHub Packages（2026-10-20），
-  该版本需要 token，现已不推荐使用；公共 npmjs 上会以 `dsh-code-notes` 重新发布。
-- GitHub Packages 上的旧包可以保留（无害），也可以到包设置里删除，避免两份入口。
+`@javagita-lgtm/dsh-code-notes` 曾在 2026-10-20 发布到 GitHub Packages，
+但 GitHub Packages 的 npm 源**即使是 public 包也强制 token**（匿名 `npm view` 返回 401，
+官方文档确认）。为了做到「一条命令、无需 token」，才改成公共 npmjs + 不带作用域的包名。
+GitHub Packages 上的旧包可以保留，也可以到包设置里删除，避免两套入口。
