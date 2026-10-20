@@ -1,0 +1,40 @@
+{
+  "meta": {
+    "title": "Code Notes (Obsidian)",
+    "description": "Explain while coding: after the agent edits code, generate a background business-logic explainer card and write the explanation, Mermaid flowcharts, Markmap mind maps and Canvas boards into a configured Obsidian vault."
+  },
+  "panel": {
+    "open": "Explain",
+    "close": "Hide explainer",
+    "title": "Code explainer",
+    "subtitle": "edits → notes → vault",
+    "empty": "No explainer yet. Let the agent edit code, or send /讲解 <file or scope> in the composer.",
+    "generate": "Regenerate",
+    "generateAll": "Explain this session's edits",
+    "openVault": "Open in Obsidian",
+    "openVaultDisabled": "No Obsidian vault configured yet",
+    "copyMarkdown": "Copy Markdown",
+    "copied": "Copied",
+    "write": "Write to Obsidian",
+    "written": "Written",
+    "settings": "Settings",
+    "loading": "Generating explanation…",
+    "failed": "Explanation failed",
+    "noChanges": "No code edits captured in this session yet.",
+    "configMissing": "No Obsidian vault configured: notes stay in the session until you set one in Settings."
+  },
+  "note": {
+    "title": "Code explanation",
+    "files": "Files",
+    "business": "Business logic",
+    "flow": "Call flow",
+    "mind": "Mind map",
+    "canvas": "Canvas",
+    "keypoints": "Key points",
+    "risks": "Notes / risks",
+    "source": "Source",
+    "diff": "Changes",
+    "session": "Session",
+    "generatedAt": "Generated"
+  }
+}

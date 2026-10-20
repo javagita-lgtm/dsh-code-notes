@@ -1,0 +1,60 @@
+{
+  "name": "@javagita-lgtm/dsh-code-notes",
+  "version": "0.2.0",
+  "description": "Explain code while coding: capture edits, explain them with a side-channel model call, and write Obsidian notes (Mermaid flow, Markmap mind map, Canvas) with an inline panel in DSH.",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "lib/*.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-locale"
+      ]
+    }
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "obsidian",
+    "code-notes",
+    "explainer",
+    "mermaid",
+    "markmap"
+  ],
+  "license": "MIT",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/javagita-lgtm/dsh-code-notes.git"
+  },
+  "homepage": "https://github.com/javagita-lgtm/dsh-code-notes#readme",
+  "bugs": {
+    "url": "https://github.com/javagita-lgtm/dsh-code-notes/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

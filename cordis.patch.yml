@@ -1,0 +1,34 @@
+# 代码讲解笔记（dsh-code-notes）
+#
+# 一行 bundle patch：插入插件本体。单项设置全部读取这里的 config，
+# 也可直接在 GUI「设置」里改（会写回本 profile 的 cordis.patch.yml）。
+- insert:
+    - id: code-notes
+      name: dsh-code-notes
+      config:
+        enabled: true
+        # auto = 每次 AI 改完代码后自动生成讲解卡片；manual = 只用 /讲解 或工具触发
+        mode: auto
+        # Obsidian 库（vault）根目录；留空则只生成预览、不落盘
+        vaultPath: ''
+        # 笔记写入 vault 下的哪个子目录
+        folder: CodeNotes
+        # 模型路由；留空则跟随当前会话模型，其次跟随默认模型
+        provider: ''
+        model: ''
+        # 单个文件最多读入多少字符交给模型
+        maxFileChars: 24000
+        # 每次讲解最多合并多少个被改动的文件
+        maxFilesPerNote: 6
+        # 后台模型调用超时（毫秒）
+        timeoutMs: 120000
+        # 后台模型输出上限
+        maxOutputTokens: 4096
+        # 是否生成 Canvas 画布文件
+        writeCanvas: true
+        # 是否在笔记里写入 [[双链]]（文件、会话）
+        linkNotes: true
+        # 落盘时是否同时生成一份索引笔记 <folder>/_index.md
+        writeIndex: true
+        # 多回合的讲解记录保留条数
+        historyLimit: 40

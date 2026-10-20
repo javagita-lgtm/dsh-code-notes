@@ -1,0 +1,47 @@
+name: publish
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://npm.pkg.github.com
+          scope: '@${{ github.repository_owner }}'
+
+      # 语法检查 + 纯函数冒烟：不联网、不调模型
+      - name: Verify
+        run: |
+          node --check index.js
+          node --check client.js
+          for file in lib/*.js; do node --check "$file"; done
+          node test/smoke.mjs
+          node test/client.mjs
+          node test/integration.mjs
+
+      # 标签与包内版本必须一致，避免发出版本和标签对不上
+      - name: Check tag matches version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG="$(node -p "require('./package.json').version")"
+          if [ "$TAG" != "$PKG" ]; then
+            echo "tag $TAG 与 package.json version $PKG 不一致" >&2
+            exit 1
+          fi
+
+      - name: Publish to GitHub Packages
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

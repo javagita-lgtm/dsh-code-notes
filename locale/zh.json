@@ -1,0 +1,40 @@
+{
+  "meta": {
+    "title": "代码讲解笔记（Obsidian）",
+    "description": "边编码边讲解：AI 改完代码后后台生成业务逻辑讲解卡片，并把讲解、Mermaid 流程图、Markmap 思维图与 Canvas 画布写进指定的 Obsidian 库。"
+  },
+  "panel": {
+    "open": "讲解",
+    "close": "收起讲解",
+    "title": "代码讲解",
+    "subtitle": "改动 → 讲解 → Obsidian",
+    "empty": "还没有讲解记录。让 AI 改一次代码，或在输入框发送 /讲解 <文件或范围>。",
+    "generate": "重新讲解",
+    "generateAll": "讲解当前会话改动",
+    "openVault": "在 Obsidian 中打开",
+    "openVaultDisabled": "尚未配置 Obsidian 库目录",
+    "copyMarkdown": "复制 Markdown",
+    "copied": "已复制",
+    "write": "写入 Obsidian",
+    "written": "已写入",
+    "settings": "设置",
+    "loading": "讲解生成中…",
+    "failed": "讲解失败",
+    "noChanges": "当前会话还没有捕获到代码改动。",
+    "configMissing": "未配置 Obsidian 库目录，笔记只保留在会话里，可在设置中填写。"
+  },
+  "note": {
+    "title": "代码讲解记录",
+    "files": "涉及文件",
+    "business": "业务逻辑",
+    "flow": "调用流程",
+    "mind": "思维导图",
+    "canvas": "画布",
+    "keypoints": "要点",
+    "risks": "注意 / 风险",
+    "source": "原文对照",
+    "diff": "改动内容",
+    "session": "会话",
+    "generatedAt": "生成时间"
+  }
+}
