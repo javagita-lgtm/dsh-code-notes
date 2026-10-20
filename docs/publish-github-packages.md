@@ -2,7 +2,10 @@
 
 > 目标形态：包名 `@javagita-lgtm/dsh-code-notes`，源指向 GitHub Packages。
 > 仓库：<https://github.com/javagita-lgtm/dsh-code-notes>（已确认为 public 仓库）
-> 公开仓库 + 公开包 ⇒ 任何人无需 token 即可安装；私有仓库 ⇒ 安装者需要自己的 GitHub token。
+> **实测结论：即使包关联公开仓库，匿名安装仍会 401**（`authentication token not provided`）。
+> GitHub 官方文档明确写着「You need an access token to publish, install, and delete private, internal,
+> **and public** packages」——所以**每个安装者都必须有一个带 `read:packages` 的 classic token**。
+> 这一点与本项目最初的设想不同，按下面的步骤操作即可。
 
 本仓库已备好这些文件，你只需要替换占位符并执行几步：
 
@@ -16,29 +19,31 @@
 
 - **作用域包（scoped package）**：`@用户名/包名`。GitHub Packages 的 npm 源**强制**要作用域，
   所以不能叫 `dsh-code-notes`，只能叫 `@javagita-lgtm/dsh-code-notes`。
-- **公开 / 私有包（visibility）**：GitHub Packages 的 npm 包分两种。与**公开仓库**关联、且发布为公开的包，
-  匿名可下载；只在私有仓库里发布的包，下载者必须用有 `read:packages` 权限的 token 登录。
+- **可见性不等于免登录**：首次发布默认 private；即便你把它改成 public、或让它继承公开仓库权限，
+  **安装仍然需要 token**。官方原话：「You need an access token to publish, install, and delete
+  private, internal, and public packages」。本项目已实测复现：匿名 `npm view` 返回
+  `401 authentication token not provided`。
 - **registry 覆盖**：作用域包默认会被 npm 当成「该去 npmjs 找」的包，所以安装方要告诉 pnpm
   「`@javagita-lgtm` 这个作用域走 GitHub Packages」，否则会 404。
+- **想「一条命令、无需 token」安装**：GitHub Packages 做不到，这是平台限制。
+  那种体验只有公共 npmjs 能给，需要改回**不带作用域**的名字（如 `dsh-code-notes`，该名在 npmjs 尚未被占用）。
 
-## 1. 一次性准备（发布者）
+## 1. 已经完成的步骤（2026-10-20）
 
-1. 公开仓库已经建好：`javagita-lgtm/dsh-code-notes`（默认分支 `main`，当前为空仓库）。
-2. 在仓库根目录推首次提交并打标签：
+| 步骤 | 结果 |
+| --- | --- |
+| 仓库 | `javagita-lgtm/dsh-code-notes`，public，默认分支 `main` |
+| 首次提交 | `b7f04fd` + 2 个文档提交，已推送 `main` |
+| 包元数据 | `package.json` 改为 `@javagita-lgtm/dsh-code-notes`，填好 repository / homepage / bugs |
+| 发布 | 打标签 `v0.2.0` → Actions `publish` 全绿（Verify / Check tag / Publish 均 success） |
+| 线上包 | <https://github.com/users/javagita-lgtm/packages/npm/package/dsh-code-notes> |
+
+后续发新版：
 
 ```bash
-git init
-git add .
-git commit -m "feat: dsh-code-notes 0.2.0"
-git branch -M main
-git remote add origin https://github.com/javagita-lgtm/dsh-code-notes.git
-git push -u origin main
-git tag v0.2.0
-git push origin v0.2.0
+npm version patch        # 或 minor / major
+git push --follow-tags   # 标签推送 ⇒ CI 自动发布
 ```
-
-推送标签后，Actions 会跑 `node --check` + 三套测试 + 版本号校验，然后
-`npm publish` 到 GitHub Packages（用内置的 `GITHUB_TOKEN`，不需要另建 secret）。
 
 **手动发布**（不想用 CI，或 Actions 被策略禁用时）：
 
@@ -52,41 +57,40 @@ npm publish
 > 注意：发布前确认包已关联到仓库（`package.json` 的 `repository` 字段已填），
 > 否则包里标签和仓库对不上、无法设成公开。
 
-## 2. 别人怎么装（写进你的 README 首发说明）
+## 2. 别人怎么装
 
-**公开仓库 + 公开包（推荐给使用者）**
-
-```bash
-# ① 告诉 pnpm/npm：这个作用域走 GitHub Packages
-cat >> ~/.npmrc <<'EOF'
-@javagita-lgtm:registry=https://npm.pkg.github.com
-EOF
-
-# ② 安装
-pnpm add @javagita-lgtm/dsh-code-notes
-```
-
-**私有仓库 / 私有包（每个安装者都要 token）**
+> 实测：**GitHub Packages 不支持匿名安装**，两种可见性都需要 token。
+> 安装者必须先建一个 classic token（勾 `read:packages`），再往下走。
 
 ```bash
-# 建 classic token，勾 read:packages
+# ① 建 classic token：GitHub → Settings → Developer settings → Personal access tokens (classic)
+#    勾选 read:packages（想自己发布再加 write:packages）
+
+# ② 写入本机 ~/.npmrc（不要提交进仓库）
 cat >> ~/.npmrc <<'EOF'
 @javagita-lgtm:registry=https://npm.pkg.github.com
 //npm.pkg.github.com/:_authToken=<安装者自己的 TOKEN>
 EOF
 
+# ③ 安装
 pnpm add @javagita-lgtm/dsh-code-notes
 ```
 
 Windows 上 `~/.npmrc` 就是 `%USERPROFILE%\.npmrc`。
+token 只给「这个作用域 + 这个 host」用，不会泄露到 npmjs 的请求里。
+
+**替代方案：不想让每个使用者建 token**
+把包改回不带作用域的名字发布到公共 npmjs（如 `dsh-code-notes`，npmjs 上尚未被占用），
+安装就变成 `pnpm add dsh-code-notes`。代价是名字无法体现作者、且要重新配置 `publishConfig` 与 CI。
 
 ## 3. 装进 DeepSeek Harness
 
 这个包是一个 **bundle**（带 `cordis.patch.yml`），`pnpm add` 到项目里也不会自动出现在 DSH 插件列表。
 两种落地方式：
 
-- **推荐**：在 DSH 里对 Agent 说「从 npm 安装 `@javagita-lgtm/dsh-code-notes`，源是 GitHub Packages」，
+- **推荐**：在 DSH 里对 Agent 说「从 GitHub Packages 安装 `@javagita-lgtm/dsh-code-notes`」，
   它会用 `plugin_manager` 的 `install_bundle`（`target` 填包名，必要时给 `registry`）完成登记、装包、选 bundle。
+  > 前提：该 DSH 进程能读到本机 `~/.npmrc` 里的 token。
 - 手动：在该 DSH profile 里 `pnpm add @javagita-lgtm/dsh-code-notes`，把包名加进 profile `package.json` 的
   `dsh.profile.bundles`，再补一条 `cordis.patch.yml` 的 `- id: code-notes` 行（内容可直接抄本目录同名文件）。
 
@@ -110,7 +114,7 @@ git push --follow-tags
 | 现象 | 原因 | 处理 |
 | --- | --- | --- |
 | `404 Not Found - GET @javagita-lgtm/dsh-code-notes` | 没配作用域 registry | 第 2 步的 `@javagita-lgtm:registry=...` |
-| `401 Unauthorized` | 私有包没 token / token 缺 `read:packages` | 补 token 或改公开包 |
+| `401 authentication token not provided` | GitHub Packages 一律要 token（**public 包也要**） | 第 2 步加 `_authToken`；这是平台限制，不是配置错 |
 | `npm publish` 报 `ENEEDAUTH` | 本机没登录 | 写 `~/.npmrc` 或用 CI |
 | `npm publish` 报 403 + `scope not found` | 包名作用域与登录账号不一致 | 包名必须是 `@登录账号/xxx` |
 | `npm publish` 报 E403 权限 | token 缺 `write:packages` | 重建 token 勾上 |

@@ -1,8 +1,18 @@
 # 代码讲解笔记（dsh-code-notes）
 
 > 仓库：<https://github.com/javagita-lgtm/dsh-code-notes> · 包名 `@javagita-lgtm/dsh-code-notes`
-> 发布到 GitHub Packages 让别人 `pnpm add` 安装的完整步骤见 [`docs/publish-github-packages.md`](docs/publish-github-packages.md)；
-> 只想装到另一台机器（拷目录或 tgz）见 [`docs/install-other-machine.md`](docs/install-other-machine.md)。
+> 已发布到 GitHub Packages（`v0.2.0`）。安装（**需要 classic token，public 包也一样**）：
+>
+> ```bash
+> # ~/.npmrc
+> @javagita-lgtm:registry=https://npm.pkg.github.com
+> //npm.pkg.github.com/:_authToken=<你的 classic token，勾 read:packages>
+> ```
+> ```bash
+> pnpm add @javagita-lgtm/dsh-code-notes
+> ```
+>
+> 更多细节：[发布与安装](docs/publish-github-packages.md) · [装到另一台机器（拷目录 / tgz）](docs/install-other-machine.md)。
 
 边编码边讲解：AI 每改一次代码，插件就通过**旁路模型调用**把改动讲成业务逻辑说明，
 并同时落成四种 Obsidian 形态：
