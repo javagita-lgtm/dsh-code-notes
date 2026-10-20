@@ -109,20 +109,29 @@ jobs:
         run: |
           NPM_CONFIG_USERCONFIG="$RUNNER_TEMP/npmrc" npm publish --dry-run --access public
 
-      # ── 方案 C：暂存发布。CI 只把版本推进 npm 的 stage 队列，
-      #    维护者随后在 npm 网页用 2FA 批准，天然规避 CI 无法完成 2FA 的问题。
+      # ── 方案 C：暂存发布。CI 只把版本推进 npm 的 staged 队列，
+      #    维护者随后在 npm 网页用 2FA 批准，天然规避「CI 无法完成交互式 2FA」。
+      #    npm 12+ 才有 `npm stage`，Node 22 自带的 10/11 没有这个子命令。
       - name: Publish (staged)
         if: env.STRATEGY == 'staged'
         run: |
           if ! npm stage --help >/dev/null 2>&1; then
-            echo "::error title=npm CLI 不支持 npm stage::当前版本 $(npm --version)，需要更新到支持 staged publishing 的版本"
+            echo "::warning::当前 npm $(npm --version) 没有 stage 子命令，安装 npm@12 后重试"
+            npm install -g npm@12 || {
+              echo "::error title=无法安装 npm@12::请本地执行 npm stage publish，或改用 strategy=token"
+              exit 1
+            }
+            npm --version
+          fi
+          if ! npm stage --help >/dev/null 2>&1; then
+            echo "::error title=npm 仍不支持 stage::请本地交互式发布，见 docs/publish-to-npm.md 方案 A"
             exit 1
           fi
           if [ -n "$NPM_TOKEN" ]; then
             export NPM_CONFIG_USERCONFIG="$RUNNER_TEMP/npmrc"
           fi
           npm stage publish --access public
-          echo "::notice title=已暂存，等待批准::到 https://www.npmjs.com/package/$(node -p "require('./package.json').name") 用 2FA 批准这版发布"
+          echo "::notice title=已进入暂存队列::到 https://www.npmjs.com/package/$(node -p "require('./package.json').name") 用 2FA 批准这一版"
 
       - name: Publish with NPM_TOKEN
         if: env.NPM_TOKEN != '' && (env.STRATEGY == 'auto' || env.STRATEGY == 'token')
