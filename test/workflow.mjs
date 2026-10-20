@@ -30,6 +30,7 @@ if (doc !== undefined) {
     'Guard package name and registry',
     'Detect registry state',
     'Prepare npm credentials',
+    'Check npm 2FA readiness',
     'Publish (staged)',
     'Publish with NPM_TOKEN',
     'Publish with OIDC trusted publishing'

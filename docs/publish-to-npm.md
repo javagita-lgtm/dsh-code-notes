@@ -3,29 +3,78 @@
 > 目标：包名 `dsh-code-notes`（不带作用域），源 <https://registry.npmjs.org>
 > —— 任何人 `pnpm add dsh-code-notes`，**无需 token、无需 .npmrc**。
 
-## 当前卡点（2026-10-20）
+## 根因已定位（2026-10-20，本地 + CI 都是同一个）
 
-两次 CI 发布都停在同一个 403：
+本地 `npm login`（账号 `hansdeemo`）后执行 `npm publish` 仍然 403，并被真实接口确认：
+
+```
+账号  hansdeemo
+tfa   false          ← 账号没有开启 2FA
+token publish_token  ← bypass_2fa: false
+```
 
 ```
 403 Forbidden - PUT https://registry.npmjs.org/dsh-code-notes
 Two-factor authentication or granular access token with bypass 2fa enabled is required to publish packages.
 ```
 
-已排除的因素：包名可用（npmjs 404）、版本/标签一致、provenance 签名成功、token 能被 `npm whoami` 认出来
-（不然会先在 `Prepare npm credentials` 挂掉）。所以问题只剩 **npm 账号的 2FA / token 的 Bypass 状态**。
+**结论：这是账号级问题，与仓库、代码、token 内容都无关。**
+npm 的规则是二选一，你现在 **两项都不满足**：
 
-npm 的规则是二选一，缺一不可：
-
-| 条件 | 说明 |
+| 条件 | 你的状态 |
 | --- | --- |
-| 账号已开启 2FA | 发布时要么当场输 OTP（CI 做不到），要么用带 Bypass 的 token |
-| token 勾了 **Bypass two-factor authentication** | **只有账号已开 2FA 时这个勾才会出现/生效** |
+| 账号已开启 2FA（发布时输 OTP） | ❌ `tfa: false` |
+| token 带 `bypass_2fa`（CI 免 OTP） | ❌ `bypass_2fa: false` |
 
-⚠️ 关键：**如果 npm 账号本身没开 2FA，token 上的 Bypass 选项不会帮你绕过检查**。
-这就是「更新了 token 还是 403」最常见的原因。
+而且两个是**依赖关系**：账号没开 2FA 时，token 上的「Bypass two-factor authentication」勾选根本不会生效。
+所以「换个 token 再试」永远解决不了，必须先开账号 2FA。
 
-## 方案 A：本地交互发布一次（最快，推荐先做这个）
+随时可以用仓库里的体检脚本自查（只读、不打印 token）：
+
+```bash
+node scripts/check-npm-2fa.mjs      # 读 NPM_TOKEN 或 ~/.npmrc
+```
+
+## 修复步骤（先做第 1 步，其余才生效）
+
+1. **开启账号 2FA**：<https://www.npmjs.com/settings/~/account> → Two-Factor Authentication → Enable
+   （用任意 TOTP App，如 1Password / Authy / 微软验证器）
+2. 开启后二选一：
+   - **本地发布**：`npm publish --access public`，按提示输入 OTP（最省事，推荐先做一次）
+   - **CI 发布**：<https://www.npmjs.com/settings/~/tokens> 新建 Granular Access Token，
+     `Read and write` + `All packages` + **勾 Bypass 2FA**，然后更新仓库 secret `NPM_TOKEN`
+3. 包第一次出现后，配置 Trusted Publishing 彻底摆脱 token：
+   <https://www.npmjs.com/package/dsh-code-notes/access> → Trusted publishing → Add
+   - Organization or user: `javagita-lgtm`
+   - Repository: `dsh-code-notes`
+   - Workflow filename: `publish.yml`
+4. 删掉仓库 secret `NPM_TOKEN`（工作流会自动走 OIDC）
+
+## 临时替代通道：暂存发布（已验证可用）
+
+npm 12 的 `npm stage publish` 允许在没有 2FA 的情况下把版本推进待批准队列，
+已在本次实测成功（stag id `8e737970…`，状态从 `validating` → `staged`）：
+
+```bash
+npm i -g npm@12
+npm stage publish --access public
+npm stage list
+```
+
+但**批准这一步（`npm stage approve <id>`）仍然需要 2FA**：现在调用会返回
+`404 staged version not found`（服务端在缺 OTP 时给出的其实是「你看不到这个对象」）。
+所以开完账号 2FA 后，这条通道也可以用来「CI 暂存 + 你在网页批准」：
+
+- Actions → `publish` → Run workflow → `strategy: staged`
+
+## 当前待办
+
+- [ ] 账号 `hansdeemo` 开启 2FA
+- [ ] 本地 `npm publish --access public` 完成首次发布（或配置 Bypass token 后跑 CI）
+- [ ] 配置 Trusted Publishing，删除 `NPM_TOKEN`
+- [ ] 发布后验证：干净目录 `pnpm add dsh-code-notes` 能匿名装上
+
+## 方案 A：本地交互发布一次（开完 2FA 后最快）
 
 CI 不需要处理 2FA，你在终端里输一次 OTP 就行。**发布过一次之后**，包就存在了，
 后续就能交给 Trusted Publishing（OIDC）自动发布。

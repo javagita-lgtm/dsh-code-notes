@@ -51,6 +51,7 @@ jobs:
           node test/client.mjs
           node test/integration.mjs
           node test/workflow.mjs
+          node test/npm-2fa.mjs
 
       - name: Check tag matches version
         if: startsWith(github.ref, 'refs/tags/')
@@ -103,6 +104,18 @@ jobs:
             exit 1
           fi
           echo "token 对应账号: $WHOAMI"
+
+      # 发布能否成功只取决于两件事：账号 2FA、token 的 bypass_2fa。
+      # 提前查清楚，避免带着必然失败的配置去 publish。
+      - name: Check npm 2FA readiness
+        if: env.NPM_TOKEN != '' && env.STRATEGY != 'oidc' && env.STRATEGY != 'dry-run'
+        run: |
+          NPM_TOKEN="$NPM_TOKEN" node scripts/check-npm-2fa.mjs || {
+            echo "::error title=npm 发布前置条件不满足::账号未开 2FA 且 token 没有 bypass_2fa，publish 必然 403。"
+            echo "修复：https://www.npmjs.com/settings/~/account 开启 2FA，然后本地 npm publish 或重建带 Bypass 的 token。"
+            echo "详见 docs/publish-to-npm.md。"
+            exit 1
+          }
 
       - name: Publish (dry run)
         if: env.NPM_TOKEN != '' && env.STRATEGY == 'dry-run'
