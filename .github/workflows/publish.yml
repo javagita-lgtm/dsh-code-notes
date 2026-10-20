@@ -8,6 +8,8 @@ on:
 
 permissions:
   contents: read
+  # npm provenance：让 npm 页面显示「由哪个仓库/提交构建」的签名证明
+  id-token: write
 
 jobs:
   publish:
@@ -53,6 +55,17 @@ jobs:
             echo "publishConfig.registry 必须是 https://registry.npmjs.org，当前 $REG" >&2
             exit 1
           fi
+
+      # 没配 NPM_TOKEN 时给出可操作的提示，而不是让 npm 报晦涩的 401
+      - name: Check npm token
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "缺少仓库 secret NPM_TOKEN：GitHub → Settings → Secrets and variables → Actions → New repository secret" >&2
+            echo "token 来自 https://www.npmjs.com/settings/~/tokens ，权限选 Read and write" >&2
+            exit 1
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish to npmjs
         run: npm publish --provenance --access public
