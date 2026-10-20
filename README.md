@@ -1,18 +1,15 @@
 # 代码讲解笔记（dsh-code-notes）
 
-> 仓库：<https://github.com/javagita-lgtm/dsh-code-notes> · 包名 `@javagita-lgtm/dsh-code-notes`
-> 已发布到 GitHub Packages（`v0.2.0`）。安装（**需要 classic token，public 包也一样**）：
+> 仓库：<https://github.com/javagita-lgtm/dsh-code-notes> · 包名 `dsh-code-notes`（公共 npmjs）
+>
+> 安装，一条命令：
 >
 > ```bash
-> # ~/.npmrc
-> @javagita-lgtm:registry=https://npm.pkg.github.com
-> //npm.pkg.github.com/:_authToken=<你的 classic token，勾 read:packages>
-> ```
-> ```bash
-> pnpm add @javagita-lgtm/dsh-code-notes
+> pnpm add dsh-code-notes
 > ```
 >
-> 更多细节：[发布与安装](docs/publish-github-packages.md) · [装到另一台机器（拷目录 / tgz）](docs/install-other-machine.md)。
+> 然后让 DSH 把它登记成插件（见下「装进 DeepSeek Harness」）。
+> 更多细节：[发布与安装](docs/publish-to-npm.md) · [装到另一台机器（拷目录 / tgz）](docs/install-other-machine.md)。
 
 边编码边讲解：AI 每改一次代码，插件就通过**旁路模型调用**把改动讲成业务逻辑说明，
 并同时落成四种 Obsidian 形态：

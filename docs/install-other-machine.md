@@ -34,14 +34,14 @@
 ## 方案 B：用压缩包安装（只需要一个 37 KB 的 tgz）
 
 源码目录里执行 `npm pack --pack-destination dist` 即可生成
-`dist/javagita-lgtm-dsh-code-notes-0.2.0.tgz`（14 个文件，含 LICENSE）。
-> 上架到 GitHub Packages 后，除了这条 tgz 路径，也可以按包名安装 `@javagita-lgtm/dsh-code-notes`
-> （见 [`publish-github-packages.md`](publish-github-packages.md)）。
+`dist/dsh-code-notes-0.2.0.tgz`（14 个文件，含 LICENSE）。
+> 包已发布到公共 npmjs 之后，最省事的是直接 `pnpm add dsh-code-notes`
+> （见 [`publish-to-npm.md`](publish-to-npm.md)）；下面这条是离线/内网场景的备选。
 
-1. 把 tgz 拷到新机器，例如 `D:\dsh-plugins\javagita-lgtm-dsh-code-notes-0.2.0.tgz`。
+1. 把 tgz 拷到新机器，例如 `D:\dsh-plugins\dsh-code-notes-0.2.0.tgz`。
 2. 对 Agent 说：
 
-   > 用 plugin_manager 安装 `D:\dsh-plugins\javagita-lgtm-dsh-code-notes-0.2.0.tgz`
+   > 用 plugin_manager 安装 `D:\dsh-plugins\dsh-code-notes-0.2.0.tgz`
    > （`action: install_bundle`，`target` 填这个 tgz 的绝对路径）
 
    如果是 npm 风格安装，等价的命令行等价物是
@@ -49,8 +49,8 @@
    它会同时处理登记与 bundle 选择。
 3. 因为这是 **copy** 安装（不是 link），以后升级要重新用新的 tgz 安装 / 覆盖。
 
-> 发布到 GitHub Packages 之后，也可以直接按包名安装：
-> 详见 [`docs/publish-github-packages.md`](../docs/publish-github-packages.md)（作用域包名 + registry 覆盖 + token）。
+> 包发布到公共 npmjs 之后，也可以直接 `pnpm add dsh-code-notes`：
+> 详见 [`publish-to-npm.md`](publish-to-npm.md)。
 
 ---
 

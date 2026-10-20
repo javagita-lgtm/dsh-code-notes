@@ -1,5 +1,5 @@
 {
-  "name": "@javagita-lgtm/dsh-code-notes",
+  "name": "dsh-code-notes",
   "version": "0.2.0",
   "description": "Explain code while coding: capture edits, explain them with a side-channel model call, and write Obsidian notes (Mermaid flow, Markmap mind map, Canvas) with an inline panel in DSH.",
   "type": "module",
@@ -17,7 +17,8 @@
     "cordis.patch.yml",
     "locale/*.json",
     "icon.svg",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "dsh": {
     "bundle": {
@@ -44,7 +45,8 @@
   ],
   "license": "MIT",
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
+    "registry": "https://registry.npmjs.org",
+    "access": "public"
   },
   "repository": {
     "type": "git",
