@@ -8,12 +8,15 @@ on:
 
 permissions:
   contents: read
-  # npm provenance：让 npm 页面显示「由哪个仓库/提交构建」的签名证明
+  # npm provenance，以及 OIDC Trusted Publishing
   id-token: write
 
 jobs:
   publish:
     runs-on: ubuntu-latest
+    env:
+      # 可能是空串：下面用 if 判断走 token 还是 OIDC
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
@@ -22,7 +25,11 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
-      # 语法检查 + 冒烟测试：不联网、不调模型
+      # Trusted Publishing（OIDC）需要 npm >= 11.5.1，Node 22 自带的是 10.x
+      - name: Upgrade npm
+        run: |
+          npm install -g npm@latest || echo "npm 升级失败，继续使用自带版本"
+
       - name: Verify
         run: |
           node --check index.js
@@ -32,7 +39,6 @@ jobs:
           node test/client.mjs
           node test/integration.mjs
 
-      # 标签与包内版本必须一致，避免发出版本和标签对不上
       - name: Check tag matches version
         if: startsWith(github.ref, 'refs/tags/')
         run: |
@@ -43,7 +49,6 @@ jobs:
             exit 1
           fi
 
-      # 包名不能带作用域：npmjs 上 dsh-code-notes 未占用，任何人可匿名安装
       - name: Guard package name and registry
         run: |
           NAME="$(node -p "require('./package.json').name")"
@@ -56,18 +61,59 @@ jobs:
             exit 1
           fi
 
-      # 没配 NPM_TOKEN 时给出可操作的提示，而不是让 npm 报晦涩的 401
-      - name: Check npm token
+      # 包是否已在 npmjs 上（首次发布不能用 OIDC 创建新包）
+      - name: Detect registry state
+        id: state
         run: |
-          if [ -z "$NODE_AUTH_TOKEN" ]; then
-            echo "缺少仓库 secret NPM_TOKEN：GitHub → Settings → Secrets and variables → Actions → New repository secret" >&2
-            echo "token 来自 https://www.npmjs.com/settings/~/tokens ，权限选 Read and write" >&2
+          PKG="$(node -p "require('./package.json').name")"
+          if npm view "$PKG" version >/dev/null 2>&1; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "包已存在于 npmjs"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+            echo "包尚未发布到 npmjs"
+          fi
+        env:
+          NPM_TOKEN: ''
+
+      # 有 token 就先确认它可用，并写一个只在本步骤可见的临时 npmrc
+      - name: Prepare npm credentials
+        if: env.NPM_TOKEN != ''
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > "$RUNNER_TEMP/npmrc"
+          chmod 600 "$RUNNER_TEMP/npmrc"
+          if ! NPM_CONFIG_USERCONFIG="$RUNNER_TEMP/npmrc" npm whoami; then
+            echo "::error title=NPM_TOKEN 无效::token 可能已过期或被撤销，请到 https://www.npmjs.com/settings/~/tokens 重新生成"
             exit 1
           fi
+          echo "token 有效"
+
+      - name: Publish with NPM_TOKEN
+        if: env.NPM_TOKEN != ''
+        run: |
+          NPM_CONFIG_USERCONFIG="$RUNNER_TEMP/npmrc" npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Publish to npmjs
-        run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # 没有 token 时退回 OIDC Trusted Publishing（仅对已存在的包有效）
+      - name: Publish with OIDC trusted publishing
+        if: env.NPM_TOKEN == ''
+        run: |
+          if [ "${{ steps.state.outputs.published }}" != "true" ]; then
+            echo "::error title=缺少 NPM_TOKEN::npm 不允许用 OIDC 创建新包，首次发布必须先用 token。"
+            echo "请创建 granular access token（Read and write + All packages + 勾选 Bypass 2FA），"
+            echo "存为仓库 secret NPM_TOKEN 后重跑。详见 docs/publish-to-npm.md。"
+            exit 1
+          fi
+          npm publish --provenance --access public
+
+      - name: Explain 403
+        if: failure() && env.NPM_TOKEN != ''
+        run: |
+          echo "::warning title=若上方报 403 / 2FA::"
+          echo "错误包含 “Two-factor authentication or granular access token with bypass 2fa enabled is required” 时："
+          echo "token 没有勾选 Bypass 2FA。重建 Granular Access Token 时必须勾选："
+          echo "  Permissions: Read and write"
+          echo "  Packages: All packages（首次发布不能选单个包，因为包还不存在）"
+          echo "  Bypass two-factor authentication (2FA): 必须勾"
+          echo "然后更新 secret NPM_TOKEN 并重跑。详见 docs/publish-to-npm.md。"

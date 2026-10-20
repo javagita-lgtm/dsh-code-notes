@@ -16,41 +16,76 @@ GitHub Packages 的 npm 源**强制**作用域包，而且官方文档写明「p
 | 匿名可装 | ❌ | ✅ |
 | 代码可见 | 仓库公开即公开 | 包内容公开（本仓库本来就是公开的） |
 
-## 你只差一步：给仓库配 `NPM_TOKEN`
+## 你只差一步：给仓库配**勾了 Bypass 2FA** 的 token
 
-**当前状态（2026-10-20）**：代码已切到 npmjs 配置并推送（`4459450`），标签 `v0.2.0` 已重打，
-CI 运行到第 7 步 **`Check npm token` 失败** —— 仓库里还没有 `NPM_TOKEN`，所以包尚未出现在 npmjs
-（`https://registry.npmjs.org/dsh-code-notes` 仍是 404）。配好 secret 后重跑即可，无需再改代码。
+**当前状态（2026-10-20 16:50 UTC+8）**：包已上传到一半但被 npm 拒绝，`registry.npmjs.org/dsh-code-notes` 仍是 404。
 
-CI 用的是 npm 官方 token，不是 `GITHUB_TOKEN`（后者只在 GitHub Packages 有效）：
+CI 报错原文：
 
-1. 去 <https://www.npmjs.com/settings/~/tokens> 建一个 **Granular Access Token**
-   （或 classic **Automation** token）：
-   - 权限：`Read and write`
-   - 范围：至少覆盖 `dsh-code-notes`
-2. 在 <https://github.com/javagita-lgtm/dsh-code-notes/settings/secrets/actions>
-   新建仓库 secret，名字必须是 **`NPM_TOKEN`**，值粘贴上面的 token。
-3. 重跑发布（任选其一）：
-   - Actions 页面 → `publish` → **Run workflow**（已支持 `workflow_dispatch`）
-   - 或 `git tag -d v0.2.0 && git tag v0.2.0 && git push --force origin v0.2.0`
+```
+E403 403 Forbidden - PUT https://registry.npmjs.org/dsh-code-notes
+Two-factor authentication or granular access token with bypass 2fa enabled is required to publish packages.
+```
 
-> 第一次发布时 npm 会让你确认包名可用；`dsh-code-notes` 在 npmjs 上目前 **404 = 未被占用**（已核对）。
+**这不是权限范围问题，也不是包名问题**（前面的 `Verify` / `Check tag` / `Guard package name` 全绿，
+provenance 也签名成功了）。npm 现在的策略是：**发布必须 2FA，或者用勾了「Bypass two-factor authentication」
+的 granular token**。你现有的 `NPM_TOKEN` 少了那个勾。
+
+### 重建 token（三处必须全对）
+
+<https://www.npmjs.com/settings/~/tokens> → Generate New Token → **Granular Access Token**：
+
+| 设置项 | 必须的值 | 为什么 |
+| --- | --- | --- |
+| Permissions | **Read and write** | 只读的发不了 |
+| Packages | **All packages** | 首次发布时 `dsh-code-notes` 还不存在，选不到单个包 |
+| **Bypass two-factor authentication (2FA)** | **✅ 勾上** | 少了它就是你看到的这个 403 |
+| Expiration | 7 天（默认）即可 | 发布完立即删掉/轮换 |
+
+然后把新 token 覆盖到仓库 secret `NPM_TOKEN`（<https://github.com/javagita-lgtm/dsh-code-notes/settings/secrets/actions>），
+再重跑：Actions → `publish` → **Run workflow**。
+
+> 我已在工作流里加了前置校验：token 无效会在 `Prepare npm credentials` 直接报「NPM_TOKEN 无效」，
+> 不会再走到 publish 才失败；403 时还会打印上面这份对照表。
+
+### 发布成功之后（可选，但推荐）
+
+包能出现在 npmjs 上之后，就可以彻底不用 token 了——配置 **Trusted Publishing（OIDC）**：
+
+1. <https://www.npmjs.com/package/dsh-code-notes/access> → Trusted publishing → Add
+2. 填三项，必须与仓库完全一致：
+
+   | 字段 | 值 |
+   | --- | --- |
+   | Organization or user | `javagita-lgtm` |
+   | Repository | `dsh-code-notes` |
+   | Workflow filename | `publish.yml` |
+
+3. 之后**删掉** secret `NPM_TOKEN`，工作流会自动走 OIDC 分支（已内置），不再依赖任何长期密钥。
+
+> npm 不允许用 OIDC **创建**新包，所以第一次必须用 token——这一点工作流里也做了拦截并给出提示。
+
+> `dsh-code-notes` 在 npmjs 上目前仍是 **404 = 未被占用**（已核对）。
 
 ## 发布流程（已自动化）
 
-`.github/workflows/publish.yml` 在推送 `v*` 标签时：
+`.github/workflows/publish.yml` 在推送 `v*` 标签（或手动 Run workflow）时：
 
-1. `node --check` + 三套冒烟测试（纯函数、客户端模块、集成链路）
-2. 校验「标签版本 == package.json 版本」
-3. 校验包名不带 `@`，且 `publishConfig.registry` 就是 npmjs（防止误发到别处）
-4. `npm publish --provenance --access public`（带 provenance，npm 页面会显示构建来源）
+1. 升级 npm 到最新版（OIDC 需要 ≥ 11.5.1）
+2. `node --check` + 四套冒烟测试（纯函数、客户端模块、集成链路、工作流自身）
+3. 校验「标签版本 == package.json 版本」
+4. 校验包名不带 `@`，且 `publishConfig.registry` 就是 npmjs（防止误发到别处）
+5. 探测包是否已存在（决定走 token 还是 OIDC）
+6. 有 `NPM_TOKEN` → 先 `npm whoami` 验活，再 `npm publish --provenance --access public`
+7. 没 `NPM_TOKEN` 且包已存在 → 走 OIDC Trusted Publishing
+8. 没 `NPM_TOKEN` 且包不存在 → 直接报错并提示「首次发布必须用带 Bypass 2FA 的 token」
 
 ```bash
 npm version patch        # 0.2.0 -> 0.2.1，或 minor / major
 git push --follow-tags   # 推标签 ⇒ CI 自动发布
 ```
 
-也可以手动发（本机一次性登录）：
+也可以手动发（本机已登录、账号已开 2FA 时）：
 
 ```bash
 npm login                # 浏览器授权
@@ -78,11 +113,12 @@ Agent 会用 `plugin_manager` 的 `install_bundle`（`target: dsh-code-notes`）
 
 | 现象 | 原因 | 处理 |
 | --- | --- | --- |
-| `403 Two-factor authentication required` | npm 账号开了 2FA 且用 classic token 发布 | 用 **Automation** token 或 granular token |
-| `403 You do not have permission to publish` | token 权限不足 / 包名已被他人占用 | 检查 token 范围，或换包名 |
-| `E404` 装不到 | 包还没发布成功 | 看 Actions 里 `Publish to npmjs` 日志 |
+| `403 ... granular access token with bypass 2fa enabled is required` | token 没勾 **Bypass 2FA** | 重建 granular token，勾 Read and write + All packages + Bypass 2FA |
+| `403` 但 token 是新建的、也勾了 Bypass | `Packages` 选成了「单个包」，而首次发布时该包不存在 | 改成 **All packages** |
+| npm 账号没开 2FA，且不想开 | npm 政策要求发布方有 2FA 或 bypass token | 在 npm 账号开启 2FA，或改用 Trusted Publishing（包首次发布后） |
+| `E404` 装不到（刚发完） | npm 对新包有安全扫描，通常几分钟、最长十几分钟才可安装 | 等 5~15 分钟；别重复 publish |
 | `EPUBLISHCONFLICT` | 同版本已存在 | 提版本号 |
-| Actions `NPM_TOKEN not found` | 没配仓库 secret | 按上一节配 secret |
+| `Prepare npm credentials` 报 token 无效 | token 过期/被撤销 | 重建并更新 secret |
 | 装上了但 DSH 没显示 | 只 `pnpm add`，没登记 bundle | 见上「装进 DeepSeek Harness」 |
 
 ## 从 GitHub Packages 迁过来的历史记录
